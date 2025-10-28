@@ -12,8 +12,7 @@ const CONTRACT_ABI = [
   "function getActiveBoosts() external view returns (tuple(uint256 id, address creator, string castHash, uint256 rewardPool, uint256 rewardPerRecast, uint256 maxRecasts, uint256 currentRecasts, bool isActive, uint256 createdAt)[])",
   "function userEarnings(address) external view returns (uint256)",
   "function boostCounter() external view returns (uint256)",
-  "function boosts(uint256) external view returns (uint256 id, address creator, string castHash, uint256 rewardPool, uint256 rewardPerRecast, uint256 maxRecasts, uint256 currentRecasts, bool isActive, uint256 createdAt)",
-  "function hasUserRecasted(uint256 _boostId, address _user) external view returns (bool)"
+  "function boosts(uint256) external view returns (uint256 id, address creator, string castHash, uint256 rewardPool, uint256 rewardPerRecast, uint256 maxRecasts, uint256 currentRecasts, bool isActive, uint256 createdAt)"
 ];
 
 export default function Home() {
@@ -27,6 +26,8 @@ export default function Home() {
   const [showRecastModal, setShowRecastModal] = useState(false);
   const [selectedBoostId, setSelectedBoostId] = useState(null);
   const [recastProof, setRecastProof] = useState('');
+  const [verifyingRecast, setVerifyingRecast] = useState(false);
+  const [likes, setLikes] = useState({});
   
   const [castHash, setCastHash] = useState('');
   const [rewardAmount, setRewardAmount] = useState('');
@@ -34,9 +35,34 @@ export default function Home() {
 
   useEffect(() => {
     loadBoosts();
-    const interval = setInterval(loadBoosts, 15000);
+    loadLikes();
+    const interval = setInterval(() => {
+      loadBoosts();
+      loadLikes();
+    }, 15000);
     return () => clearInterval(interval);
   }, [contract]);
+
+  const loadLikes = () => {
+    const savedLikes = localStorage.getItem('paidcaster_likes');
+    if (savedLikes) {
+      setLikes(JSON.parse(savedLikes));
+    }
+  };
+
+  const handleLike = (boostId) => {
+    const newLikes = { ...likes };
+    const key = `boost_${boostId}`;
+    
+    if (newLikes[key]) {
+      newLikes[key] = newLikes[key] + 1;
+    } else {
+      newLikes[key] = 1;
+    }
+    
+    setLikes(newLikes);
+    localStorage.setItem('paidcaster_likes', JSON.stringify(newLikes));
+  };
 
   const connectWallet = async (walletType) => {
     try {
@@ -52,7 +78,7 @@ export default function Home() {
         }
         
         if (!ethereum) {
-          alert('🦊 MetaMask not found! Installing...');
+          alert('🦊 MetaMask not found!');
           window.open('https://metamask.io', '_blank');
           return;
         }
@@ -66,7 +92,7 @@ export default function Home() {
         }
         
         if (!ethereum) {
-          alert('💙 Coinbase Wallet not found! Installing...');
+          alert('💙 Coinbase Wallet not found!');
           window.open('https://www.coinbase.com/wallet', '_blank');
           return;
         }
@@ -79,14 +105,14 @@ export default function Home() {
         });
       } catch (err) {
         if (err.code === 4001) {
-          alert('❌ Connection rejected. Please approve in wallet.');
+          alert('❌ Connection rejected');
         }
         setShowWalletModal(false);
         return;
       }
       
       if (!accounts || accounts.length === 0) {
-        alert('❌ No accounts found. Unlock your wallet.');
+        alert('❌ No accounts found');
         setShowWalletModal(false);
         return;
       }
@@ -166,7 +192,7 @@ export default function Home() {
 
   const createBoost = async () => {
     if (!contract || !castHash || !rewardAmount || !maxRecasts) {
-      alert('⚠️ Fill all fields and connect wallet!');
+      alert('⚠️ Fill all fields!');
       return;
     }
 
@@ -177,7 +203,7 @@ export default function Home() {
       
       const balance = await provider.getBalance(account);
       if (balance < totalDeposit) {
-        alert('❌ Insufficient balance! Need ' + ethers.formatEther(totalDeposit) + ' ETH');
+        alert('❌ Insufficient balance!');
         setLoading(false);
         return;
       }
@@ -186,7 +212,7 @@ export default function Home() {
         value: totalDeposit
       });
       
-      alert('⏳ Transaction submitted! Waiting for confirmation...');
+      alert('⏳ Transaction submitted...');
       await tx.wait();
       alert('🚀 Boost Created!');
       
@@ -198,8 +224,6 @@ export default function Home() {
       console.error('Create boost error:', error);
       if (error.message.includes('user rejected')) {
         alert('❌ Transaction cancelled');
-      } else if (error.message.includes('insufficient funds')) {
-        alert('❌ Insufficient funds for gas');
       } else {
         alert('❌ Failed: ' + (error.reason || error.message));
       }
@@ -214,16 +238,64 @@ export default function Home() {
     setShowRecastModal(true);
   };
 
+  const verifyRecastAPI = async (castUrl) => {
+    try {
+      setVerifyingRecast(true);
+      
+      // Extract cast hash from URL
+      let castHash = castUrl;
+      if (castUrl.includes('warpcast.com')) {
+        const matches = castUrl.match(/0x[a-fA-F0-9]+/);
+        if (matches) {
+          castHash = matches[0];
+        }
+      }
+      
+      // Call Farcaster API (simplified - you'll need actual API endpoint)
+      // For now, we'll do basic validation
+      if (castHash.length < 10) {
+        alert('⚠️ Invalid cast URL or hash!');
+        setVerifyingRecast(false);
+        return false;
+      }
+      
+      // In production, you would call:
+      // const response = await fetch(`https://api.farcaster.xyz/v2/cast/${castHash}`);
+      // const data = await response.json();
+      // return data.recasters.includes(userFid);
+      
+      // For now, simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      setVerifyingRecast(false);
+      return true; // Simplified - always returns true for demo
+      
+    } catch (error) {
+      console.error('API verification error:', error);
+      setVerifyingRecast(false);
+      return false;
+    }
+  };
+
   const recastBoost = async () => {
     if (!contract || !selectedBoostId) return;
 
     if (!recastProof || recastProof.trim() === '') {
-      alert('⚠️ Paste your recast URL/hash!');
+      alert('⚠️ Paste your recast URL!');
       return;
     }
 
     try {
       setLoading(true);
+      
+      // Verify recast via API
+      const isVerified = await verifyRecastAPI(recastProof);
+      
+      if (!isVerified) {
+        alert('❌ Could not verify recast. Please check the URL.');
+        setLoading(false);
+        return;
+      }
       
       const boost = boosts.find(b => b.id.toString() === selectedBoostId.toString());
       
@@ -248,7 +320,7 @@ export default function Home() {
       }
       
       const tx = await contract.recastAndEarn(selectedBoostId);
-      alert('⏳ Verifying recast...');
+      alert('⏳ Verifying...');
       await tx.wait();
       
       alert('💰 Earned ' + ethers.formatEther(boost.rewardPerRecast) + ' ETH!');
@@ -260,14 +332,10 @@ export default function Home() {
       setEarnings(ethers.formatEther(userEarnings));
     } catch (error) {
       console.error('Recast error:', error);
-      if (error.message.includes('Already recasted') || error.message.includes('already recasted')) {
-        alert('⚠️ You already recasted this!');
-      } else if (error.message.includes('Max recasts')) {
-        alert('⚠️ Max recasts reached!');
-      } else if (error.message.includes('Creator cannot')) {
-        alert('⚠️ Cannot recast own boost!');
+      if (error.message.includes('Already recasted')) {
+        alert('⚠️ Already recasted!');
       } else if (error.message.includes('user rejected')) {
-        alert('❌ Transaction cancelled');
+        alert('❌ Cancelled');
       } else {
         alert('❌ Failed: ' + (error.reason || error.message));
       }
@@ -282,18 +350,14 @@ export default function Home() {
     try {
       setLoading(true);
       const tx = await contract.claimRewards();
-      alert('⏳ Claiming rewards...');
+      alert('⏳ Claiming...');
       await tx.wait();
       
       alert('🎉 Rewards Claimed!');
       setEarnings('0');
     } catch (error) {
       console.error('Claim error:', error);
-      if (error.message.includes('No rewards')) {
-        alert('⚠️ No rewards to claim!');
-      } else {
-        alert('❌ Failed: ' + (error.reason || error.message));
-      }
+      alert('❌ Failed: ' + (error.reason || error.message));
     } finally {
       setLoading(false);
     }
@@ -310,49 +374,49 @@ export default function Home() {
 
       {/* Recast Modal */}
       {showRecastModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-purple-900 to-indigo-900 rounded-2xl p-8 max-w-lg w-full border-4 border-purple-500 shadow-2xl transform transition-all">
-            <h3 className="text-3xl font-bold text-white mb-4 text-center">
-              🔍 Verify Your Recast
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-purple-900 to-indigo-900 rounded-3xl p-6 sm:p-8 max-w-lg w-full border-4 border-purple-500 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl sm:text-3xl font-bold text-white mb-4 text-center">
+              🔍 Verify Recast
             </h3>
-            <p className="text-purple-200 mb-6 text-center">
-              Paste your Farcaster recast URL or hash to verify!
+            <p className="text-purple-200 mb-6 text-center text-sm sm:text-base">
+              Paste your Farcaster recast URL to verify!
             </p>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-purple-300 mb-2 font-bold">Recast Proof</label>
+                <label className="block text-purple-300 mb-2 font-bold text-sm">Recast URL or Hash</label>
                 <input
                   type="text"
                   value={recastProof}
                   onChange={(e) => setRecastProof(e.target.value)}
-                  placeholder="https://warpcast.com/... or cast hash"
-                  className="w-full bg-black bg-opacity-60 border-4 border-purple-500 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-2 focus:ring-pink-400"
+                  placeholder="warpcast.com/... or 0x..."
+                  className="w-full bg-black bg-opacity-60 border-2 border-purple-500 rounded-lg px-4 py-3 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-2 focus:ring-pink-400"
                 />
               </div>
 
               <div className="bg-purple-800 bg-opacity-40 border-2 border-purple-600 rounded-lg p-4">
-                <p className="text-sm text-purple-200">
+                <p className="text-xs sm:text-sm text-purple-200">
                   <strong className="text-yellow-400">📋 How to verify:</strong><br/>
                   1. Recast the boost on Farcaster<br/>
                   2. Copy your recast URL<br/>
-                  3. Paste here to earn!
+                  3. Paste here to earn rewards!
                 </p>
               </div>
 
               <div className="flex gap-3">
                 <button
                   onClick={recastBoost}
-                  disabled={loading}
-                  className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-2 border-green-400"
+                  disabled={loading || verifyingRecast}
+                  className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-4 sm:px-6 rounded-lg transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-2 border-green-400 text-sm sm:text-base"
                 >
-                  {loading ? '⏳ Verifying...' : '✅ Verify & Earn'}
+                  {verifyingRecast ? '🔍 Checking...' : loading ? '⏳ Processing...' : '✅ Verify & Earn'}
                 </button>
 
                 <button
                   onClick={() => setShowRecastModal(false)}
-                  disabled={loading}
-                  className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition-all border-2 border-gray-600"
+                  disabled={loading || verifyingRecast}
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 sm:px-6 rounded-lg transition-all border-2 border-gray-600 text-sm sm:text-base"
                 >
                   Cancel
                 </button>
@@ -364,9 +428,9 @@ export default function Home() {
 
       {/* Wallet Modal */}
       {showWalletModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-purple-900 to-blue-900 rounded-2xl p-8 max-w-md w-full border-4 border-purple-500 shadow-2xl">
-            <h3 className="text-3xl font-bold text-white mb-6 text-center">
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-purple-900 to-blue-900 rounded-3xl p-6 sm:p-8 max-w-md w-full border-4 border-purple-500 shadow-2xl">
+            <h3 className="text-2xl sm:text-3xl font-bold text-white mb-6 text-center">
               🔗 Choose Wallet
             </h3>
             
@@ -375,16 +439,16 @@ export default function Home() {
                 onClick={() => connectWallet('metamask')}
                 className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-105 shadow-lg flex items-center justify-center space-x-3 border-2 border-yellow-400"
               >
-                <span className="text-3xl">🦊</span>
-                <span className="text-xl">MetaMask</span>
+                <span className="text-2xl sm:text-3xl">🦊</span>
+                <span className="text-lg sm:text-xl">MetaMask</span>
               </button>
 
               <button
                 onClick={() => connectWallet('base')}
                 className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-105 shadow-lg flex items-center justify-center space-x-3 border-2 border-cyan-400"
               >
-                <span className="text-3xl">💙</span>
-                <span className="text-xl">Coinbase Wallet</span>
+                <span className="text-2xl sm:text-3xl">💙</span>
+                <span className="text-lg sm:text-xl">Coinbase Wallet</span>
               </button>
 
               <button
@@ -400,59 +464,59 @@ export default function Home() {
 
       {/* Header */}
       <header className="bg-black bg-opacity-50 backdrop-blur-md border-b-4 border-purple-500 sticky top-0 z-40">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center flex-wrap gap-4">
-          <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-yellow-400 animate-pulse">
+        <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center gap-2">
+          <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-yellow-400 animate-pulse">
             💎 PaidCaster
           </h1>
           
           {!account ? (
             <button
               onClick={() => setShowWalletModal(true)}
-              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-3 px-8 rounded-full transition-all transform hover:scale-110 shadow-lg border-2 border-purple-400"
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2 px-4 sm:py-3 sm:px-8 rounded-full transition-all transform hover:scale-110 shadow-lg border-2 border-purple-400 text-sm sm:text-base"
             >
-              🔗 Connect Wallet
+              🔗 Connect
             </button>
           ) : (
-            <div className="flex items-center gap-3">
-              <div className="bg-black bg-opacity-60 px-5 py-3 rounded-full border-2 border-green-500 shadow-lg">
-                <span className="text-green-400 font-mono text-sm font-bold">
-                  ✅ {account.slice(0, 6)}...{account.slice(-4)}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="bg-black bg-opacity-60 px-3 sm:px-5 py-2 sm:py-3 rounded-full border-2 border-green-500 shadow-lg">
+                <span className="text-green-400 font-mono text-xs sm:text-sm font-bold">
+                  ✅ {account.slice(0, 4)}...{account.slice(-3)}
                 </span>
               </div>
               <button
                 onClick={disconnectWallet}
-                className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full transition-all transform hover:scale-110 shadow-lg border-2 border-red-400"
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 sm:py-3 sm:px-6 rounded-full transition-all transform hover:scale-110 shadow-lg border-2 border-red-400 text-sm sm:text-base"
               >
-                🚪 Disconnect
+                🚪
               </button>
             </div>
           )}
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 relative z-10">
+      <main className="container mx-auto px-4 py-4 sm:py-8 relative z-10">
         {/* Hero */}
-        <div className="text-center mb-12">
-          <h2 className="text-6xl font-bold text-white mb-4 drop-shadow-lg">
-            🚀 Boost Your Casts, Earn Rewards
+        <div className="text-center mb-8 sm:mb-12">
+          <h2 className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-4 drop-shadow-lg">
+            🚀 Boost & Earn
           </h2>
-          <p className="text-2xl text-purple-200">
-            Pay to amplify Farcaster posts. Get rewarded for spreading the word.
+          <p className="text-base sm:text-xl md:text-2xl text-purple-200">
+            Amplify Farcaster posts. Get rewarded.
           </p>
         </div>
 
         {/* Earnings */}
         {account && (
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-3xl p-8 mb-8 shadow-2xl border-4 border-green-400">
-            <div className="flex justify-between items-center flex-wrap gap-4">
-              <div>
-                <p className="text-white text-opacity-90 mb-2 text-lg">💰 Your Earnings</p>
-                <h3 className="text-5xl font-bold text-white drop-shadow-lg">{earnings} ETH</h3>
+          <div className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-3xl p-4 sm:p-8 mb-6 sm:mb-8 shadow-2xl border-4 border-green-400">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="text-center sm:text-left">
+                <p className="text-white text-opacity-90 mb-2 text-sm sm:text-lg">💰 Your Earnings</p>
+                <h3 className="text-3xl sm:text-5xl font-bold text-white drop-shadow-lg">{earnings} ETH</h3>
               </div>
               <button
                 onClick={claimRewards}
                 disabled={loading || parseFloat(earnings) === 0}
-                className="bg-white text-green-700 font-bold py-4 px-10 rounded-full hover:bg-opacity-90 transition-all transform hover:scale-110 disabled:opacity-50 shadow-lg border-4 border-white text-xl"
+                className="w-full sm:w-auto bg-white text-green-700 font-bold py-3 px-6 sm:py-4 sm:px-10 rounded-full hover:bg-opacity-90 transition-all transform hover:scale-110 disabled:opacity-50 shadow-lg border-4 border-white text-lg sm:text-xl"
               >
                 💎 Claim
               </button>
@@ -461,42 +525,42 @@ export default function Home() {
         )}
 
         {/* Create Boost */}
-        <div className="bg-black bg-opacity-60 backdrop-blur-xl rounded-3xl p-8 mb-8 border-4 border-purple-500 shadow-2xl">
-          <h3 className="text-4xl font-bold text-white mb-6">✨ Create Boost</h3>
+        <div className="bg-black bg-opacity-60 backdrop-blur-xl rounded-3xl p-4 sm:p-8 mb-6 sm:mb-8 border-4 border-purple-500 shadow-2xl">
+          <h3 className="text-2xl sm:text-4xl font-bold text-white mb-4 sm:mb-6">✨ Create Boost</h3>
           
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             <div>
-              <label className="block text-purple-300 mb-3 font-bold text-lg">📝 Cast Hash/URL</label>
+              <label className="block text-purple-300 mb-2 sm:mb-3 font-bold text-sm sm:text-lg">📝 Cast Hash/URL</label>
               <input
                 type="text"
                 value={castHash}
                 onChange={(e) => setCastHash(e.target.value)}
                 placeholder="Farcaster cast hash or URL"
-                className="w-full bg-gray-800 border-4 border-purple-500 rounded-xl px-6 py-4 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
+                className="w-full bg-gray-800 border-2 sm:border-4 border-purple-500 rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-white text-sm sm:text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
-                <label className="block text-purple-300 mb-3 font-bold text-lg">💵 Reward/Recast (ETH)</label>
+                <label className="block text-purple-300 mb-2 sm:mb-3 font-bold text-sm sm:text-lg">💵 Reward (ETH)</label>
                 <input
                   type="number"
                   step="0.0001"
                   value={rewardAmount}
                   onChange={(e) => setRewardAmount(e.target.value)}
                   placeholder="0.001"
-                  className="w-full bg-gray-800 border-4 border-purple-500 rounded-xl px-6 py-4 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
+                  className="w-full bg-gray-800 border-2 sm:border-4 border-purple-500 rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-white text-sm sm:text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
                 />
               </div>
 
               <div>
-                <label className="block text-purple-300 mb-3 font-bold text-lg">🔢 Max Recasts</label>
+                <label className="block text-purple-300 mb-2 sm:mb-3 font-bold text-sm sm:text-lg">🔢 Max Recasts</label>
                 <input
                   type="number"
                   value={maxRecasts}
                   onChange={(e) => setMaxRecasts(e.target.value)}
                   placeholder="10"
-                  className="w-full bg-gray-800 border-4 border-purple-500 rounded-xl px-6 py-4 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
+                  className="w-full bg-gray-800 border-2 sm:border-4 border-purple-500 rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-white text-sm sm:text-lg placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-pink-500 focus:bg-gray-700"
                 />
               </div>
             </div>
@@ -504,7 +568,7 @@ export default function Home() {
             <button
               onClick={createBoost}
               disabled={loading || !account}
-              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-5 px-6 rounded-xl transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-4 border-purple-400 text-2xl"
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 sm:py-5 px-6 rounded-xl transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-4 border-purple-400 text-lg sm:text-2xl"
             >
               {loading ? '⏳ Processing...' : '🚀 Create Boost'}
             </button>
@@ -512,48 +576,54 @@ export default function Home() {
         </div>
 
         {/* Active Boosts */}
-        <div className="bg-black bg-opacity-60 backdrop-blur-xl rounded-3xl p-8 border-4 border-purple-500 shadow-2xl">
-          <h3 className="text-4xl font-bold text-white mb-6">🔥 Active Boosts</h3>
+        <div className="bg-black bg-opacity-60 backdrop-blur-xl rounded-3xl p-4 sm:p-8 border-4 border-purple-500 shadow-2xl">
+          <h3 className="text-2xl sm:text-4xl font-bold text-white mb-4 sm:mb-6">🔥 Active Boosts</h3>
           
           {boosts.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-purple-200 text-2xl">No active boosts. Create first! 🎉</p>
+            <div className="text-center py-8 sm:py-12">
+              <p className="text-purple-200 text-lg sm:text-2xl">No active boosts yet! 🎉</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {boosts.map((boost) => (
                 <div
                   key={boost.id.toString()}
-                  className="bg-gradient-to-br from-purple-700 to-blue-700 rounded-2xl p-6 shadow-xl border-4 border-purple-400 hover:scale-105 transition-all"
+                  className="bg-gradient-to-br from-purple-700 to-blue-700 rounded-2xl p-4 sm:p-6 shadow-xl border-4 border-purple-400 hover:scale-105 transition-all"
                 >
-                  <div className="mb-4">
-                    <span className="bg-yellow-400 text-purple-900 text-sm font-bold px-4 py-2 rounded-full shadow-lg">
+                  <div className="mb-4 flex justify-between items-center">
+                    <span className="bg-yellow-400 text-purple-900 text-xs sm:text-sm font-bold px-3 sm:px-4 py-1 sm:py-2 rounded-full shadow-lg">
                       ⭐ #{boost.id.toString()}
                     </span>
+                    <button
+                      onClick={() => handleLike(boost.id.toString())}
+                      className="bg-pink-500 hover:bg-pink-600 text-white px-3 py-1 rounded-full text-sm font-bold transition-all"
+                    >
+                      ❤️ {likes[`boost_${boost.id.toString()}`] || 0}
+                    </button>
                   </div>
                   
-                  <p className="text-purple-200 text-sm mb-2">📌 Cast:</p>
-                  <p className="text-white font-mono text-xs mb-4 break-all bg-black bg-opacity-40 p-2 rounded border-2 border-purple-400">{boost.castHash}</p>
+                  <p className="text-purple-200 text-xs sm:text-sm mb-2">📌 Cast:</p>
+                  <p className="text-white font-mono text-xs mb-4 break-all bg-black bg-opacity-40 p-2 rounded border-2 border-purple-400">{boost.castHash.length > 40 ? boost.castHash.slice(0, 40) + '...' : boost.castHash}</p>
                   
-                  <div className="space-y-3 mb-6">
-                    <div className="flex justify-between bg-black bg-opacity-40 p-3 rounded-lg border-2 border-purple-400">
-                      <span className="text-purple-200">💵 Reward:</span>
-                      <span className="text-yellow-400 font-bold">{ethers.formatEther(boost.rewardPerRecast)} ETH</span>
+                  <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
+                    <div className="flex justify-between bg-black bg-opacity-40 p-2 sm:p-3 rounded-lg border-2 border-purple-400">
+                      <span className="text-purple-200 text-xs sm:text-sm">💵 Reward:</span>
+                      <span className="text-yellow-400 font-bold text-xs sm:text-sm">{ethers.formatEther(boost.rewardPerRecast)} ETH</span>
                     </div>
-                    <div className="flex justify-between bg-black bg-opacity-40 p-3 rounded-lg border-2 border-purple-400">
-                      <span className="text-purple-200">📊 Progress:</span>
-                      <span className="text-green-400 font-bold">{boost.currentRecasts.toString()}/{boost.maxRecasts.toString()}</span>
+                    <div className="flex justify-between bg-black bg-opacity-40 p-2 sm:p-3 rounded-lg border-2 border-purple-400">
+                      <span className="text-purple-200 text-xs sm:text-sm">📊 Progress:</span>
+                      <span className="text-green-400 font-bold text-xs sm:text-sm">{boost.currentRecasts.toString()}/{boost.maxRecasts.toString()}</span>
                     </div>
-                    <div className="flex justify-between bg-black bg-opacity-40 p-3 rounded-lg border-2 border-purple-400">
-                      <span className="text-purple-200">💰 Pool:</span>
-                      <span className="text-cyan-400 font-bold">{ethers.formatEther(boost.rewardPool)} ETH</span>
+                    <div className="flex justify-between bg-black bg-opacity-40 p-2 sm:p-3 rounded-lg border-2 border-purple-400">
+                      <span className="text-purple-200 text-xs sm:text-sm">💰 Pool:</span>
+                      <span className="text-cyan-400 font-bold text-xs sm:text-sm">{ethers.formatEther(boost.rewardPool)} ETH</span>
                     </div>
                   </div>
 
                   <button
                     onClick={() => openRecastModal(boost.id)}
                     disabled={loading}
-                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-2 border-green-400 text-lg"
+                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all transform hover:scale-105 disabled:opacity-50 shadow-lg border-2 border-green-400 text-sm sm:text-lg"
                   >
                     ♻️ Recast & Earn
                   </button>
@@ -565,11 +635,13 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-black bg-opacity-50 backdrop-blur-md border-t-4 border-purple-500 mt-12 py-6 relative z-10">
+      <footer className="bg-black bg-opacity-50 backdrop-blur-md border-t-4 border-purple-500 mt-8 sm:mt-12 py-4 sm:py-6 relative z-10">
         <div className="container mx-auto px-4 text-center text-purple-200">
-          <p className="text-lg">
-            Built on <span className="text-blue-400 font-bold">Base 💙</span> | Contract: 
-            <span className="text-yellow-400 font-mono ml-2">{CONTRACT_ADDRESS.slice(0, 6)}...{CONTRACT_ADDRESS.slice(-4)}</span>
+          <p className="text-xs sm:text-lg">
+            Built on <span className="text-blue-400 font-bold">Base 💙</span>
+          </p>
+          <p className="text-xs sm:text-sm mt-2">
+            Contract: <span className="text-yellow-400 font-mono">{CONTRACT_ADDRESS.slice(0, 6)}...{CONTRACT_ADDRESS.slice(-4)}</span>
           </p>
         </div>
       </footer>

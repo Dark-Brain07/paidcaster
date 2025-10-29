@@ -238,41 +238,45 @@ export default function Home() {
     setShowRecastModal(true);
   };
 
-  const verifyRecastAPI = async (castUrl) => {
+  const verifyRecastAPI = async (castUrl, originalCastHash) => {
     try {
       setVerifyingRecast(true);
       
-      // Extract cast hash from URL
-      let castHash = castUrl;
-      if (castUrl.includes('warpcast.com')) {
-        const matches = castUrl.match(/0x[a-fA-F0-9]+/);
-        if (matches) {
-          castHash = matches[0];
-        }
-      }
-      
-      // Call Farcaster API (simplified - you'll need actual API endpoint)
-      // For now, we'll do basic validation
-      if (castHash.length < 10) {
-        alert('⚠️ Invalid cast URL or hash!');
+      // Validate URL format first
+      if (!castUrl || castUrl.trim().length < 10) {
+        alert('⚠️ Please enter a valid recast URL!');
         setVerifyingRecast(false);
         return false;
       }
       
-      // In production, you would call:
-      // const response = await fetch(`https://api.farcaster.xyz/v2/cast/${castHash}`);
-      // const data = await response.json();
-      // return data.recasters.includes(userFid);
+      // Call our verification API
+      const response = await fetch('/api/verify-recast', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          castUrl: castUrl,
+          originalCastHash: originalCastHash,
+          userFid: null // Can be added if you have Farcaster auth
+        })
+      });
       
-      // For now, simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const data = await response.json();
       
       setVerifyingRecast(false);
-      return true; // Simplified - always returns true for demo
+      
+      if (!data.verified) {
+        alert('❌ Verification Failed: ' + (data.error || 'Invalid recast'));
+        return false;
+      }
+      
+      return true;
       
     } catch (error) {
       console.error('API verification error:', error);
       setVerifyingRecast(false);
+      alert('❌ Verification error: ' + error.message);
       return false;
     }
   };
